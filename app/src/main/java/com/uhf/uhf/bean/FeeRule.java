@@ -4,10 +4,17 @@ package com.uhf.uhf.bean;
 import java.util.List;
 
 public class FeeRule extends BaseEntity {
-
-
     private List<FeeRulesBean> FeeRules;
     private List<PadMenusBean> PadMenus;
+    private AutoUpdateInfoBean AutoUpdateInfo;
+
+    public AutoUpdateInfoBean getAutoUpdateInfo() {
+        return AutoUpdateInfo;
+    }
+
+    public void setAutoUpdateInfo(AutoUpdateInfoBean AutoUpdateInfo) {
+        this.AutoUpdateInfo = AutoUpdateInfo;
+    }
 
     public List<FeeRulesBean> getFeeRules() {
         return FeeRules;
@@ -23,6 +30,42 @@ public class FeeRule extends BaseEntity {
 
     public void setPadMenus(List<PadMenusBean> PadMenus) {
         this.PadMenus = PadMenus;
+    }
+
+    public static class AutoUpdateInfoBean extends BaseEntity{
+        /**
+         * Version : sample string 1
+         * UpdateInfo : sample string 2
+         * FilePath : sample string 3
+         */
+
+        private String Version;
+        private String UpdateInfo;
+        private String FilePath;
+
+        public String getVersion() {
+            return Version;
+        }
+
+        public void setVersion(String Version) {
+            this.Version = Version;
+        }
+
+        public String getUpdateInfo() {
+            return UpdateInfo;
+        }
+
+        public void setUpdateInfo(String UpdateInfo) {
+            this.UpdateInfo = UpdateInfo;
+        }
+
+        public String getFilePath() {
+            return FilePath;
+        }
+
+        public void setFilePath(String FilePath) {
+            this.FilePath = FilePath;
+        }
     }
 
     public static class FeeRulesBean extends BaseEntity{
@@ -71,7 +114,7 @@ public class FeeRule extends BaseEntity {
         }
     }
 
-    public static class PadMenusBean extends BaseEntity {
+    public static class PadMenusBean extends BaseEntity{
         /**
          * Id : sample string 1
          */

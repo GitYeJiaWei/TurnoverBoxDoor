@@ -94,7 +94,7 @@ public class BleActivity extends ListActivity {
                                 break;
                             case PrinterClass.STATE_CONNECTING:
                                 Toast.makeText(getApplicationContext(),
-                                        "STATE_CONNECTING", Toast.LENGTH_SHORT).show();
+                                        "正在连接...", Toast.LENGTH_SHORT).show();
                                 break;
                             case PrinterClass.STATE_LISTEN:
                             case PrinterClass.STATE_NONE:
@@ -109,15 +109,15 @@ public class BleActivity extends ListActivity {
                                 }
                                 PrintService.pl.write(new byte[]{0x1d, 0x67, 0x33});
                                 Toast.makeText(getApplicationContext(),
-                                        "SUCCESS_CONNECT", Toast.LENGTH_SHORT).show();
+                                        "连接成功", Toast.LENGTH_SHORT).show();
                                 break;
                             case PrinterClass.FAILED_CONNECT:
                                 Toast.makeText(getApplicationContext(),
-                                        "FAILED_CONNECT", Toast.LENGTH_SHORT).show();
+                                        "连接失败", Toast.LENGTH_SHORT).show();
 
                                 break;
                             case PrinterClass.LOSE_CONNECT:
-                                Toast.makeText(getApplicationContext(), "LOSE_CONNECT",
+                                Toast.makeText(getApplicationContext(), "失去连接",
                                         Toast.LENGTH_SHORT).show();
                         }
                         break;
@@ -212,10 +212,30 @@ public class BleActivity extends ListActivity {
 
         PrintService.pl = new BtService(this, mhandler, handler);
 
-        Intent intent = new Intent();
+        if (PrintService.pl != null && PrintService.pl.getState() != PrinterClass.STATE_CONNECTED) {
+            Intent intent = new Intent();
+            intent = new Intent();
+            intent.setClass(BleActivity.this, PrintSettingActivity.class);
+            startActivityForResult(intent, 0);
+        }
+
+        /*Intent intent = new Intent();
         intent.putExtra("position", 0);
         intent.setClass(BleActivity.this, HelpActivity.class);
-        startActivity(intent);
+        startActivity(intent);*/
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        switch (requestCode) {
+            case 0:
+                if (PrintService.pl.getState() == PrinterClass.STATE_CONNECTED) {
+                    BleActivity.this.finish();
+                }
+                break;
+            default:
+                break;
+        }
     }
 
 
@@ -244,6 +264,13 @@ public class BleActivity extends ListActivity {
     protected void onListItemClick(ListView listView, View v, int position,
                                    long id) {
         BleActivity.checkState = true;
+        if (PrintService.pl != null && PrintService.pl.getState() != PrinterClass.STATE_CONNECTED) {
+            Intent intent = new Intent();
+            intent = new Intent();
+            intent.setClass(BleActivity.this, PrintSettingActivity.class);
+            startActivityForResult(intent, 0);
+        }
+        /*BleActivity.checkState = true;
         Intent intent = new Intent();
         intent.putExtra("position", position);
         intent.setClass(BleActivity.this, HelpActivity.class);
@@ -257,7 +284,7 @@ public class BleActivity extends ListActivity {
                 break;
             case 2:
                 break;
-        }
+        }*/
     }
 
     private List<Map<String, String>> getData(String title) {

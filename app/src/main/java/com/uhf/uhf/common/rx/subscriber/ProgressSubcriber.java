@@ -5,7 +5,11 @@ import android.content.Context;
 import com.uhf.uhf.common.exception.BaseException;
 import com.uhf.uhf.ui.BaseView;
 
+import java.io.IOException;
+
 import io.reactivex.disposables.Disposable;
+import okhttp3.ResponseBody;
+import retrofit2.HttpException;
 
 public  abstract  class ProgressSubcriber<T> extends ErrorHandlerSubscriber<T>  {
 
@@ -36,11 +40,21 @@ public  abstract  class ProgressSubcriber<T> extends ErrorHandlerSubscriber<T>  
 
     @Override
     public void onError(Throwable e) {
-        e.printStackTrace();
         //当出现错误时触发
+        if (e instanceof HttpException){
+            ResponseBody responseBody = ((HttpException) e).response().errorBody();
+            if (responseBody != null){
+                try {
+                    responseBody.string();
+                } catch (IOException e1) {
+                    e1.printStackTrace();
+                }
+            }
+        }
+
+        e.printStackTrace();
         BaseException baseException =  mErrorHandler.handleError(e);
         mView.showError(baseException.getDisplayMessage());
-
     }
 
 }

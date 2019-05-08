@@ -1,10 +1,13 @@
 package com.uhf.uhf.ui.activity;
 
 import android.content.Intent;
+import android.os.Bundle;
 import android.os.Handler;
-import android.view.KeyEvent;
+import android.text.InputType;
+import android.text.TextUtils;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -13,13 +16,14 @@ import android.widget.Toast;
 import com.uhf.uhf.AppApplication;
 import com.uhf.uhf.R;
 import com.uhf.uhf.bean.BaseBean;
-import com.uhf.uhf.bean.BaseEpc;
 import com.uhf.uhf.bean.EPC;
 import com.uhf.uhf.bean.FeeRule;
 import com.uhf.uhf.bean.LeaseBean;
 import com.uhf.uhf.bean.ReturnBean;
 import com.uhf.uhf.common.util.ACache;
+import com.uhf.uhf.common.util.SoundManage;
 import com.uhf.uhf.common.util.ToastUtil;
+import com.uhf.uhf.data.http.ApiService;
 import com.uhf.uhf.di.component.AppComponent;
 import com.uhf.uhf.di.component.DaggerReturnComponent;
 import com.uhf.uhf.di.module.ReturnModule;
@@ -35,14 +39,24 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import butterknife.BindView;
+import butterknife.ButterKnife;
 import butterknife.OnClick;
+import io.reactivex.Observable;
+import io.reactivex.Observer;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
+import okhttp3.OkHttpClient;
+import retrofit2.Retrofit;
+import retrofit2.adapter.rxjava2.RxJava2CallAdapterFactory;
+import retrofit2.converter.gson.GsonConverterFactory;
 
 public class ReturnActivity extends BaseActivity<ReturnPresenter> implements ReturnContract.ReturnView {
 
-    LeaseBean leaseBean;
     @BindView(R.id.tv_tid)
     TextView tvTid;
     @BindView(R.id.tv_name)
@@ -55,18 +69,25 @@ public class ReturnActivity extends BaseActivity<ReturnPresenter> implements Ret
     Button btnCommit;
     @BindView(R.id.lin_lease)
     LinearLayout linLease;
+    @BindView(R.id.et_back)
+    EditText etBack;
+    @BindView(R.id.btn_sure)
+    Button btnSure;
+    @BindView(R.id.btn_clear)
+    Button btnClear;
     private ArrayList<EPC> epclist = new ArrayList<>();
     private ConcurrentHashMap<String, List<EPC>> hashMap = new ConcurrentHashMap<>();
     private HashMap<String, String> map = new HashMap<>();
     LeaseScanadapter leaseScanadapter = null;
     private ArrayList<String> arrayList = new ArrayList<>();
     private BaseBean<FeeRule> baseBean = null;
-
     private ReaderBase mReader;
     private ReaderHelper mReaderHelper;
     private static InventoryBuffer m_curInventoryBuffer;
     private static ReaderSetting m_curReaderSetting;
     private int epcNum = 0;
+    String cardCode;
+    String Tid;
 
     @Override
     public int setLayout() {
@@ -81,17 +102,7 @@ public class ReturnActivity extends BaseActivity<ReturnPresenter> implements Ret
 
     @Override
     public void init() {
-        Intent intent = getIntent();
-        if (intent != null) {
-            leaseBean = (LeaseBean) intent.getSerializableExtra("cardCode");
-            String Tid = intent.getStringExtra("TID");
-            tvName.setText(leaseBean.getContactName());
-            tvTid.setText(Tid);
-        }
-        if (leaseBean == null) {
-            ToastUtil.toast("获取数据失败");
-            finish();
-        }
+        etBack.setInputType(InputType.TYPE_NULL);
 
         baseBean = (BaseBean<FeeRule>) ACache.get(AppApplication.getApplication()).getAsObject("feeRule");
         if (baseBean == null) {
@@ -140,7 +151,7 @@ public class ReturnActivity extends BaseActivity<ReturnPresenter> implements Ret
             intent.putExtra("Return", baseBean);
             intent.putExtra("TID", TID);
             intent.putExtra("Name", Name);
-            intent.putExtra("ID", leaseBean.getId());
+            intent.putExtra("ID", Tid);
             intent.putExtra("listEpcJson", AppApplication.getGson().toJson(arrayList));
             startActivity(intent);
         } else {
@@ -153,7 +164,7 @@ public class ReturnActivity extends BaseActivity<ReturnPresenter> implements Ret
         ToastUtil.toast("操作失败,请退出重新登录");
     }
 
-    @OnClick({R.id.btn_scan, R.id.btn_commit})
+    @OnClick({R.id.btn_scan, R.id.btn_commit,R.id.btn_sure,R.id.btn_clear})
     public void onViewClicked(View view) {
         switch (view.getId()) {
             case R.id.btn_scan:
@@ -162,8 +173,14 @@ public class ReturnActivity extends BaseActivity<ReturnPresenter> implements Ret
                 break;
             case R.id.btn_commit:
                 if (!btnScan.getText().toString()
-                        .equals(getResources().getString(R.string.lease_next))){
+                        .equals(getResources().getString(R.string.lease_next))) {
                     startstop();
+                }
+                String name = tvName.getText().toString();
+                String id = tvTid.getText().toString();
+                if (TextUtils.isEmpty(name) || TextUtils.isEmpty(id)){
+                    ToastUtil.toast("请扫描退还卡再提交");
+                    return;
                 }
                 Iterator it = hashMap.keySet().iterator();
                 while (it.hasNext()) {
@@ -174,6 +191,82 @@ public class ReturnActivity extends BaseActivity<ReturnPresenter> implements Ret
                 }
                 mPresenter.Return(AppApplication.getGson().toJson(arrayList)); //获取超时数量
                 break;
+            case R.id.btn_sure:
+                if (!btnScan.getText().toString()
+                        .equals(getResources().getString(R.string.lease_next))) {
+                    startstop();
+                }
+                readCard();
+                break;
+            case R.id.btn_clear:
+                if (!btnScan.getText().toString()
+                        .equals(getResources().getString(R.string.lease_next))) {
+                    startstop();
+                }
+                etBack.setText("");
+                break;
+        }
+    }
+
+    private void readCard() {
+        String entity = etBack.getText().toString().trim();
+        if (!TextUtils.isEmpty(entity)) {
+            SoundManage.PlaySound(AppApplication.getApplication(), SoundManage.SoundType.SUCCESS);
+            cardCode = entity;
+
+            Map<String, String> map = new HashMap<>();
+            map.put("cardCode", cardCode);
+            map.put("cardType", "2");
+            Retrofit retrofit = new Retrofit.Builder()
+                    //设置基础的URL
+                    .baseUrl(ApiService.BASE_URL)
+                    //设置内容格式,这种对应的数据返回值是Gson类型，需要导包
+                    .addConverterFactory(GsonConverterFactory.create())
+                    //设置支持RxJava，应用observable观察者，需要导包
+                    .addCallAdapterFactory(RxJava2CallAdapterFactory.create())
+                    .client(new OkHttpClient())
+                    .build();
+
+            ApiService apIservice = retrofit.create(ApiService.class);
+            Observable<BaseBean<LeaseBean>> qqDataCall = apIservice.leaseid(map);
+            qqDataCall.subscribeOn(Schedulers.io())//请求数据的事件发生在io线程
+                    .observeOn(AndroidSchedulers.mainThread())//请求完成后在主线程更新UI
+                    .subscribe(new Observer<BaseBean<LeaseBean>>() {
+                                   @Override
+                                   public void onSubscribe(Disposable d) {
+
+                                   }
+
+                                   @Override
+                                   public void onNext(BaseBean<LeaseBean> baseBean) {
+                                       if (baseBean == null) {
+                                           ToastUtil.toast("扫描退还卡失败");
+                                           return;
+                                       }
+                                       if (baseBean.getCode() == 0) {
+                                           ToastUtil.toast("扫描退还卡成功");
+                                           tvName.setText(baseBean.getData().getContactName());
+                                           tvTid.setText(cardCode);
+                                           Tid = baseBean.getData().getId();
+                                       } else {
+                                           ToastUtil.toast(baseBean.getMessage());
+                                       }
+                                   }
+
+                                   @Override
+                                   public void onError(Throwable e) {
+                                       ToastUtil.toast("操作失败,请退出重新登录");
+                                   }
+
+                                   @Override
+                                   public void onComplete() {
+                                   }//订阅
+                               }
+
+                    );
+        } else {
+            SoundManage.PlaySound(this, SoundManage.SoundType.FAILURE);
+            ToastUtil.toast("退还卡扫描失败,请将感应模块贴近卡片重新扫描");
         }
     }
 
@@ -326,9 +419,16 @@ public class ReturnActivity extends BaseActivity<ReturnPresenter> implements Ret
     @Override
     protected void onDestroy() {
         if (!btnScan.getText().toString()
-                .equals(getResources().getString(R.string.lease_next))){
+                .equals(getResources().getString(R.string.lease_next))) {
             startstop();
         }
         super.onDestroy();
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // TODO: add setContentView(...) invocation
+        ButterKnife.bind(this);
     }
 }

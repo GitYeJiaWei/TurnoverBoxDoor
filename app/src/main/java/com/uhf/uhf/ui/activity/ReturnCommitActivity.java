@@ -198,7 +198,7 @@ public class ReturnCommitActivity extends BaseActivity<CreateReturnPresenter> im
         //点击对话框以外的区域是否让对话框消失
         builder.setCancelable(true);
         //设置正面按钮
-        builder.setPositiveButton("是的", new DialogInterface.OnClickListener() {
+        builder.setPositiveButton("是", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 print();
@@ -206,7 +206,7 @@ public class ReturnCommitActivity extends BaseActivity<CreateReturnPresenter> im
             }
         });
         //设置反面按钮
-        builder.setNegativeButton("不是", new DialogInterface.OnClickListener() {
+        builder.setNegativeButton("否", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.dismiss();

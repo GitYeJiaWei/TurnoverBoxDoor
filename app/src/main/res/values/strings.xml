@@ -59,8 +59,11 @@
     <string name="lease_money">合计：</string>
     <string name="lease_commit">出库提交</string>
     <string name="lease_print">打印</string>
+    <string name="frag_scan">点击进行租赁</string>
+    <string name="frag_back">点击进行退还</string>
     <string name="return_next">下一步</string>
     <string name="return_clear">清除</string>
+    <string name="return_sure">确定</string>
     <string name="return_num">退还卡编号：</string>
     <string name="return_name">退还人姓名：</string>
     <string name="return_money">破损总扣费：</string>

@@ -1,8 +1,14 @@
 package com.uhf.uhf.ui.activity;
 
+import android.app.Dialog;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Rect;
+import android.os.Build;
 import android.support.design.widget.TabLayout;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentManager;
@@ -10,15 +16,21 @@ import android.support.v4.view.GravityCompat;
 import android.support.v4.view.ViewPager;
 import android.support.v4.widget.DrawerLayout;
 import android.support.v7.app.ActionBar;
+import android.text.Html;
 import android.text.TextUtils;
+import android.text.method.LinkMovementMethod;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
+import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -28,6 +40,8 @@ import com.uhf.uhf.R;
 import com.uhf.uhf.bean.BaseBean;
 import com.uhf.uhf.bean.FeeRule;
 import com.uhf.uhf.common.ActivityCollecter;
+import com.uhf.uhf.common.download.LoadingService;
+import com.uhf.uhf.common.download.Utils;
 import com.uhf.uhf.common.util.ACache;
 import com.uhf.uhf.common.util.NetUtils;
 import com.uhf.uhf.common.util.ToastUtil;
@@ -48,6 +62,7 @@ import com.uhf.uhf.ui.fragment.LeaseFragment;
 import com.uhf.uhf.ui.fragment.ReturnFragment;
 import com.uhf.uhf.ui.fragment.SettingFragment;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -60,6 +75,8 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
     private int[] mBitMaps;
     private DrawerLayout mDrawerLayout;
     private ListView mDrawerList;
+    private LinearLayout mleftLin;
+    private TextView mVersionCode;
     private View headerView;
     private View mNetWorkTips;
     private ViewPager vpager;
@@ -76,6 +93,9 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
     private List<String> titleList;
     private List<Integer> picList;
     private TabLayout tablayout;
+    private boolean isLoading;
+    private MyReceive myReceive;
+    private String path;
 
     private ReaderBase mReader;
     private ReaderHelper mReaderHelper;
@@ -94,6 +114,12 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
 
     @Override
     public void init() {
+        myReceive = new MyReceive();
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("android.intent.action.loading_over");
+        filter.addAction("android.intent.action.loading");
+        registerReceiver(myReceive, filter);//注册广播
+
         mPresenter.feeRule();
         initview();
         selectItem(0);
@@ -170,6 +196,8 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
     private void initview() {
         mDrawerLayout = findViewById(R.id.drawer_layout);
         mDrawerList = findViewById(R.id.left_drawer);
+        mleftLin = findViewById(R.id.left_lin);
+        mVersionCode = findViewById(R.id.tv_versionCode);
 
         //官方导航栏
         ActionBar actionBar = getSupportActionBar();
@@ -186,6 +214,12 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
         mDrawerLayout.setDrawerShadow(R.mipmap.drawer_shadow, GravityCompat.START);
         mDrawerList.setAdapter(new DrawerListAdapter(this, R.layout.drawer_list_item, DrawerListContent.ITEMS));
         mDrawerList.setOnItemClickListener(new DrawerItemClickListener());
+
+        try {
+            mVersionCode.setText("当前版本号：" + Utils.getVersionName(this));
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
 
         //网络检测
         mNetWorkTips = findViewById(R.id.network_view);
@@ -273,10 +307,12 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
             if (!list.contains("1")){
                 fragments.remove(myFragment2);
                 titleList.remove(mOptionTitles[1]);
+                picList.remove(1);
             }
             if (!list.contains("2")){
                 fragments.remove(myFragment3);
                 titleList.remove(mOptionTitles[2]);
+                picList.remove(2);
             }
 
             mAdapter.notifyDataSetChanged();
@@ -294,6 +330,9 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
                 iv.setImageResource(picList.get(i));
                 //给tab设置view
                 tab.setCustomView(view);
+            }
+            if (baseBean.getData().getAutoUpdateInfo() != null && baseBean.getData().getAutoUpdateInfo().getVersion() != null) {
+                getVersionInfoFromServer();
             }
         }else {
             ToastUtil.toast(baseBean1.getMessage());
@@ -340,7 +379,7 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
     private class DrawerItemClickListener implements ListView.OnItemClickListener {
         @Override
         public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-            mDrawerLayout.closeDrawer(mDrawerList);
+            mDrawerLayout.closeDrawer(mleftLin);
             if (position == 0)//headView click
             {
                 startActivity(new Intent(MainActivity.this, LoginActivity.class));
@@ -395,7 +434,7 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
         } else {
             actionBar.setHomeAsUpIndicator(null);
         }
-        mDrawerLayout.closeDrawer(mDrawerList);
+        mDrawerLayout.closeDrawer(mleftLin);
     }
 
 
@@ -445,12 +484,12 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
                 {
                     if (fragment instanceof HomeFragment)
                     {
-                        if (mDrawerLayout.isDrawerVisible(mDrawerList))
+                        if (mDrawerLayout.isDrawerVisible(mleftLin))
                         {
-                            mDrawerLayout.closeDrawer(mDrawerList);
+                            mDrawerLayout.closeDrawer(mleftLin);
                         } else
                         {
-                            mDrawerLayout.openDrawer(mDrawerList);
+                            mDrawerLayout.openDrawer(mleftLin);
                         }
                     } else
                     {
@@ -474,6 +513,101 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
         Rect rect = new Rect();
         getWindow().getDecorView().getWindowVisibleDisplayFrame(rect);
         return screenHeight - rect.bottom != 0;
+    }
+
+    /**
+     * 从服务器获取版本最新的版本信息
+     */
+    private void getVersionInfoFromServer() {
+        path = getExternalCacheDir() + "/1.1.1.jpg";
+        //模拟从服务器获取信息
+        SharedPreferences sharedPreferences = getSharedPreferences("data", MODE_PRIVATE);
+        sharedPreferences.edit().putString("url", baseBean.getData().getAutoUpdateInfo().getFilePath()).commit();
+        sharedPreferences.edit().putString("path", path).commit();//getExternalCacheDir获取到的路径 为系统为app分配的内存 卸载app后 该目录下的资源也会删除
+        //比较版本信息
+        try {
+            int result = Utils.compareVersion(Utils.getVersionName(this), baseBean.getData().getAutoUpdateInfo().getVersion());
+            if (result == -1) {//不是最新版本
+                showDialog();
+            } else {
+                //Toast.makeText(MainActivity.this, "已经是最新版本", Toast.LENGTH_SHORT).show();
+            }
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void showDialog() {
+        final Dialog dialog = new Dialog(MainActivity.this);
+        LayoutInflater inflater = (LayoutInflater) MainActivity.this
+                .getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+        TextView version, content;
+        Button left, right;
+        View view = inflater.inflate(R.layout.version_update, null, false);
+        version = (TextView) view.findViewById(R.id.version);
+        content = (TextView) view.findViewById(R.id.content);
+        left = (Button) view.findViewById(R.id.left);
+        right = (Button) view.findViewById(R.id.right);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            content.setText(Html.fromHtml(baseBean.getData().getAutoUpdateInfo().getUpdateInfo(), Html.FROM_HTML_MODE_LEGACY));
+        } else {
+            content.setText(baseBean.getData().getAutoUpdateInfo().getUpdateInfo());
+        }
+        content.setMovementMethod(LinkMovementMethod.getInstance());
+        version.setText("版本号：" + baseBean.getData().getAutoUpdateInfo().getVersion());
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        left.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                dialog.dismiss();
+            }
+        });
+        right.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                dialog.dismiss();
+                downloadNewVersionFromServer();
+
+            }
+        });
+
+        dialog.setContentView(view);
+        dialog.setCancelable(false);
+        Window dialogWindow = dialog.getWindow();
+        dialogWindow.setGravity(Gravity.CENTER);
+        //dialogWindow.setWindowAnimations(R.style.ActionSheetDialogAnimation);
+        WindowManager.LayoutParams lp = dialogWindow.getAttributes();
+        WindowManager wm = (WindowManager)
+                getSystemService(Context.WINDOW_SERVICE);
+        lp.width = wm.getDefaultDisplay().getWidth() / 10 * 9;
+        dialogWindow.setAttributes(lp);
+        dialog.show();
+    }
+
+    /**
+     * 启动服务后台下载
+     */
+    private void downloadNewVersionFromServer() {
+        if (new File(path).exists()) {
+            new File(path).delete();
+        }
+        Toast.makeText(MainActivity.this, "开始下载...", Toast.LENGTH_SHORT).show();
+        LoadingService.startUploadImg(this);
+    }
+
+    /**
+     * 定义广播接收者 接受下载状态
+     */
+    public class MyReceive extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if ("android.intent.action.loading_over".equals(action)) {
+                isLoading = false;
+            } else if ("android.intent.action.loading".equals(action)) {
+                isLoading = true;
+            }
+        }
     }
 }
 

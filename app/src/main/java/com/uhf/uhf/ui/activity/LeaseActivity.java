@@ -3,10 +3,13 @@ package com.uhf.uhf.ui.activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.os.Bundle;
 import android.os.Handler;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -21,7 +24,9 @@ import com.uhf.uhf.bean.EPC;
 import com.uhf.uhf.bean.FeeRule;
 import com.uhf.uhf.bean.LeaseBean;
 import com.uhf.uhf.common.util.ACache;
+import com.uhf.uhf.common.util.SoundManage;
 import com.uhf.uhf.common.util.ToastUtil;
+import com.uhf.uhf.data.http.ApiService;
 import com.uhf.uhf.di.component.AppComponent;
 import com.uhf.uhf.di.component.DaggerCreatRentComponent;
 import com.uhf.uhf.di.module.CreatRentModule;
@@ -40,10 +45,21 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import butterknife.BindView;
+import butterknife.ButterKnife;
 import butterknife.OnClick;
+import io.reactivex.Observable;
+import io.reactivex.Observer;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
+import okhttp3.OkHttpClient;
+import retrofit2.Retrofit;
+import retrofit2.adapter.rxjava2.RxJava2CallAdapterFactory;
+import retrofit2.converter.gson.GsonConverterFactory;
 
 public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements CreateRentContract.CreateRentView {
 
@@ -64,19 +80,25 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
     TextView tvName;
     @BindView(R.id.tv_sum)
     TextView tvSum;
+    @BindView(R.id.et_lease)
+    EditText etLease;
+    @BindView(R.id.btn_clear)
+    Button btnClear;
+    @BindView(R.id.btn_sure)
+    Button btnSure;
     private ArrayList<EPC> epclist = new ArrayList<>();
-    LeaseBean leaseBean;
     private ConcurrentHashMap<String, List<EPC>> hashMap = new ConcurrentHashMap<>();
     private HashMap<String, String> map = new HashMap<>();
     private BaseBean<FeeRule> baseBean = null;
-
     private ReaderBase mReader;
     private ReaderHelper mReaderHelper;
     private static InventoryBuffer m_curInventoryBuffer;
     private static ReaderSetting m_curReaderSetting;
-    private int epcNum=0;
+    private int epcNum = 0;
     private double sum = 0;
     String leaseResult = null;
+    String cardCode;
+    String Tid;
 
     @Override
     public int setLayout() {
@@ -91,17 +113,8 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
 
     @Override
     public void init() {
-        Intent intent = getIntent();
-        if (intent != null) {
-            leaseBean = (LeaseBean) intent.getSerializableExtra("cardCode");
-            String Tid = intent.getStringExtra("TID");
-            tvName.setText(leaseBean.getContactName());
-            tvTid.setText(Tid);
-        }
-        if (leaseBean == null) {
-            ToastUtil.toast("获取数据失败");
-            finish();
-        }
+        //不弹出软键盘
+        etLease.setInputType(InputType.TYPE_NULL);
 
         setTitle("扫描出库");
         linLease.setVisibility(View.GONE);
@@ -110,8 +123,8 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
         leaseScanadapter = new LeaseScanadapter(this, "lease");
         listLease.setAdapter(leaseScanadapter);
 
-        baseBean = (BaseBean<FeeRule>)ACache.get(AppApplication.getApplication()).getAsObject("feeRule");
-        if (baseBean==null){
+        baseBean = (BaseBean<FeeRule>) ACache.get(AppApplication.getApplication()).getAsObject("feeRule");
+        if (baseBean == null) {
             finish();
         }
 
@@ -138,7 +151,7 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
 
     }
 
-    @OnClick({R.id.btn_scan, R.id.btn_commit, R.id.btn_print})
+    @OnClick({R.id.btn_scan, R.id.btn_commit, R.id.btn_print, R.id.btn_clear,R.id.btn_sure})
     public void onViewClicked(View view) {
         switch (view.getId()) {
             case R.id.btn_scan:
@@ -147,8 +160,14 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
                 break;
             case R.id.btn_commit:
                 if (!btnScan.getText().toString()
-                        .equals(getResources().getString(R.string.lease_next))){
+                        .equals(getResources().getString(R.string.lease_next))) {
                     startstop();
+                }
+                String name = tvName.getText().toString();
+                String id = tvTid.getText().toString();
+                if (TextUtils.isEmpty(name) || TextUtils.isEmpty(id)){
+                    ToastUtil.toast("请扫描租赁卡再提交");
+                    return;
                 }
                 ArrayList<String> arrayList = new ArrayList<>();
                 Iterator it = hashMap.keySet().iterator();
@@ -158,62 +177,137 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
                         arrayList.add(hashMap.get(key).get(i).getData1());
                     }
                 }
-                mPresenter.creatrent(AppApplication.getGson().toJson(arrayList), leaseBean.getId());
+                mPresenter.creatrent(AppApplication.getGson().toJson(arrayList), Tid);
                 break;
             case R.id.btn_print:
                 if (!btnScan.getText().toString()
-                        .equals(getResources().getString(R.string.lease_next))){
+                        .equals(getResources().getString(R.string.lease_next))) {
                     startstop();
                 }
                 createDialog();
                 break;
+            case R.id.btn_clear:
+                if (!btnScan.getText().toString()
+                        .equals(getResources().getString(R.string.lease_next))) {
+                    startstop();
+                }
+                etLease.setText("");
+                break;
+            case R.id.btn_sure:
+                if (!btnScan.getText().toString()
+                        .equals(getResources().getString(R.string.lease_next))) {
+                    startstop();
+                }
+                readCard();
+                break;
         }
     }
 
-    private void print(){
-            if (PrintService.pl == null || PrintService.pl.getState() != PrinterClass.STATE_CONNECTED) {
-                ToastUtil.toast("请先到设置中连接打印机");
-                startActivity(new Intent(LeaseActivity.this,BleActivity.class));
-                return;
-            }
-            SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            Date date = new Date(System.currentTimeMillis());
-            String str_time = simpleDateFormat.format(date);
+    private void readCard() {
+        String entity = etLease.getText().toString().trim().toUpperCase();
+        if (!TextUtils.isEmpty(entity)) {
+            SoundManage.PlaySound(AppApplication.getApplication(), SoundManage.SoundType.SUCCESS);
+            cardCode = entity;
+            Map<String, String> map = new HashMap<>();
+            map.put("cardCode", cardCode);
+            map.put("cardType", "1");
+            Retrofit retrofit = new Retrofit.Builder()
+                    //设置基础的URL
+                    .baseUrl(ApiService.BASE_URL)
+                    //设置内容格式,这种对应的数据返回值是Gson类型，需要导包
+                    .addConverterFactory(GsonConverterFactory.create())
+                    //设置支持RxJava，应用observable观察者，需要导包
+                    .addCallAdapterFactory(RxJava2CallAdapterFactory.create())
+                    .client(new OkHttpClient())
+                    .build();
 
-            String mess="";
-            for (int i = 0; i < epclist.size(); i++) {
-                String epc = epclist.get(i).getEpc();
-                String data = epclist.get(i).getData2();
-                String money = epclist.get(i).getMoney()+"";
-                mess += epc+"    |    "+data+"     |   "+money+"\n";
-            }
-            String message =
-                    "*********租赁信息*********\n" +
-                            "租赁单号："+leaseResult+"\n" +
-                            "租赁人："+leaseBean.getContactName()+"\n" +
-                            "租赁卡："+tvTid.getText().toString()+"\n" +
-                            "--------------------------\n" +
-                            "规格   |   数量   |   押金\n" +
-                            mess+
-                            "--------------------------\n" +
-                            "累计租赁（个）："+map.size()+"\n"+
-                            "应付金额（元）："+sum+"\n"+
-                            "操作员："+ACache.get(AppApplication.getApplication()).getAsString(LoginActivity.REAL_NAME)+"\n" +
-                            "打印时间："+str_time+"\n\n\n";
-            try {
-                byte[] send=message.getBytes("GBK");
-                PrintService.pl.write(send);
-            } catch (UnsupportedEncodingException e) {
-                e.printStackTrace();
-            }
-            PrintService.pl.printText("\n");
-            PrintService.pl.write(new byte[] { 0x1d, 0x0c });
-            startActivity(new Intent(LeaseActivity.this,MainActivity.class));
-            finish();
+            ApiService apIservice = retrofit.create(ApiService.class);
+            Observable<BaseBean<LeaseBean>> qqDataCall = apIservice.leaseid(map);
+            qqDataCall.subscribeOn(Schedulers.io())//请求数据的事件发生在io线程
+                    .observeOn(AndroidSchedulers.mainThread())//请求完成后在主线程更新UI
+                    .subscribe(new Observer<BaseBean<LeaseBean>>() {
+                                   @Override
+                                   public void onSubscribe(Disposable d) {
+
+                                   }
+
+                                   @Override
+                                   public void onNext(BaseBean<LeaseBean> baseBean) {
+                                       if (baseBean == null) {
+                                           ToastUtil.toast("扫描租赁卡失败");
+                                           return;
+                                       }
+                                       if (baseBean.getCode() == 0) {
+                                           ToastUtil.toast("扫描租赁卡成功");
+                                           tvName.setText(baseBean.getData().getContactName());
+                                           tvTid.setText(cardCode);
+                                           Tid = baseBean.getData().getId();
+                                       } else {
+                                           ToastUtil.toast(baseBean.getMessage());
+                                       }
+                                   }
+
+                                   @Override
+                                   public void onError(Throwable e) {
+                                       ToastUtil.toast("操作失败,请退出重新登录");
+                                   }
+
+                                   @Override
+                                   public void onComplete() {
+                                   }//订阅
+                               }
+
+                    );
+        } else {
+            SoundManage.PlaySound(this, SoundManage.SoundType.FAILURE);
+            ToastUtil.toast("租赁卡扫描失败,请将感应模块贴近卡片重新扫描");
+        }
     }
 
-    private void createDialog(){
-        if (TextUtils.isEmpty(leaseResult)){
+    private void print() {
+        if (PrintService.pl == null || PrintService.pl.getState() != PrinterClass.STATE_CONNECTED) {
+            ToastUtil.toast("请先到设置中连接打印机");
+            startActivity(new Intent(LeaseActivity.this, BleActivity.class));
+            return;
+        }
+        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        Date date = new Date(System.currentTimeMillis());
+        String str_time = simpleDateFormat.format(date);
+
+        String mess = "";
+        for (int i = 0; i < epclist.size(); i++) {
+            String epc = epclist.get(i).getEpc();
+            String data = epclist.get(i).getData2();
+            String money = epclist.get(i).getMoney() + "";
+            mess += epc + "    |    " + data + "     |   " + money + "\n";
+        }
+        String message =
+                "*********租赁信息*********\n" +
+                        "租赁单号：" + leaseResult + "\n" +
+                        "租赁人：" + tvName.getText().toString() + "\n" +
+                        "租赁卡：" + tvTid.getText().toString() + "\n" +
+                        "--------------------------\n" +
+                        "规格   |   数量   |   押金\n" +
+                        mess +
+                        "--------------------------\n" +
+                        "累计租赁（个）：" + map.size() + "\n" +
+                        "应付金额（元）：" + sum + "\n" +
+                        "操作员：" + ACache.get(AppApplication.getApplication()).getAsString(LoginActivity.REAL_NAME) + "\n" +
+                        "打印时间：" + str_time + "\n\n\n";
+        try {
+            byte[] send = message.getBytes("GBK");
+            PrintService.pl.write(send);
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+        PrintService.pl.printText("\n");
+        PrintService.pl.write(new byte[]{0x1d, 0x0c});
+        startActivity(new Intent(LeaseActivity.this, MainActivity.class));
+        finish();
+    }
+
+    private void createDialog() {
+        if (TextUtils.isEmpty(leaseResult)) {
             ToastUtil.toast("请先提交再打印！");
             return;
         }
@@ -224,7 +318,7 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
         //点击对话框以外的区域是否让对话框消失
         builder.setCancelable(true);
         //设置正面按钮
-        builder.setPositiveButton("是的", new DialogInterface.OnClickListener() {
+        builder.setPositiveButton("是", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 print();
@@ -232,11 +326,11 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
             }
         });
         //设置反面按钮
-        builder.setNegativeButton("不是", new DialogInterface.OnClickListener() {
+        builder.setNegativeButton("否", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.dismiss();
-                startActivity(new Intent(LeaseActivity.this,MainActivity.class));
+                startActivity(new Intent(LeaseActivity.this, MainActivity.class));
                 finish();
             }
         });
@@ -247,17 +341,17 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
 
     @Override
     public void createRentResult(BaseBean<String> baseBean) {
-        if (baseBean==null){
+        if (baseBean == null) {
             ToastUtil.toast("出库提交失败");
             return;
         }
-        if (baseBean.getCode()==0){
+        if (baseBean.getCode() == 0) {
             ToastUtil.toast("出库提交成功");
 
             ACache aCache = ACache.get(AppApplication.getApplication());
             leaseResult = baseBean.getData();
             String name = tvName.getText().toString();
-            String num = map.size()+"";
+            String num = map.size() + "";
 
             EPC epc = new EPC();
             epc.setData1(leaseResult);
@@ -267,14 +361,14 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
 
             //使用getAsObject()，直接进行强转
             ArrayList<EPC> leaseResultlist = (ArrayList<EPC>) aCache.getAsObject("leaseResult");
-            if (leaseResultlist==null){
+            if (leaseResultlist == null) {
                 leaseResultlist = new ArrayList<>();
             }
             leaseResultlist.add(epc);
-            aCache.put("leaseResult",leaseResultlist,ACache.TIME_DAY);
+            aCache.put("leaseResult", leaseResultlist, ACache.TIME_DAY);
 
             createDialog();
-        }else {
+        } else {
             ToastUtil.toast(baseBean.getMessage());
         }
 
@@ -285,7 +379,7 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
         ToastUtil.toast("操作失败,请退出重新登录");
     }
 
-    private void startstop(){
+    private void startstop() {
         m_curInventoryBuffer.nIndexAntenna = 0;
         m_curInventoryBuffer.nCommond = 0;
 
@@ -357,12 +451,12 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
     }
 
     private void refreshList() {
-        if (m_curInventoryBuffer.lsTagList.size()<=epcNum){
+        if (m_curInventoryBuffer.lsTagList.size() <= epcNum) {
             return;
         }
         epcNum = m_curInventoryBuffer.lsTagList.size();
         for (int j = 0; j < m_curInventoryBuffer.lsTagList.size(); j++) {
-            String baseEpc = m_curInventoryBuffer.lsTagList.get(j).strEPC.replace(" ","");
+            String baseEpc = m_curInventoryBuffer.lsTagList.get(j).strEPC.replace(" ", "");
 
             if (!map.containsKey(baseEpc)) {
                 String type = null;
@@ -370,10 +464,10 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
                 double money1 = 0;
                 for (int i = 0; i < baseBean.getData().getFeeRules().size(); i++) {
                     type = baseBean.getData().getFeeRules().get(i).getProductTypeId();
-                    if (baseEpc.length()<=type.length()+1){
+                    if (baseEpc.length() <= type.length() + 1) {
                         return;
                     }
-                    if (type.equals(baseEpc.substring(0,type.length()))){
+                    if (type.equals(baseEpc.substring(0, type.length()))) {
                         name = baseBean.getData().getFeeRules().get(i).getProductTypeName();
                         money1 = baseBean.getData().getFeeRules().get(i).getDeposit();
                         EPC epc = new EPC();
@@ -402,9 +496,9 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
             epc1.setData2(hashMap.get(key).size() + "");
             epc1.setMoney(money);
             epclist.add(epc1);
-            sum += money*hashMap.get(key).size();
+            sum += money * hashMap.get(key).size();
         }
-        tvSum.setText("累计租赁："+map.size()+"个  应付金额："+sum+"元");
+        tvSum.setText("累计租赁：" + map.size() + "个  应付金额：" + sum + "元");
         leaseScanadapter.updateDatas(epclist);
     }
 
@@ -438,7 +532,7 @@ public class LeaseActivity extends BaseActivity<CreatRentPresenter> implements C
     @Override
     protected void onDestroy() {
         if (!btnScan.getText().toString()
-                .equals(getResources().getString(R.string.lease_next))){
+                .equals(getResources().getString(R.string.lease_next))) {
             startstop();
         }
         super.onDestroy();
