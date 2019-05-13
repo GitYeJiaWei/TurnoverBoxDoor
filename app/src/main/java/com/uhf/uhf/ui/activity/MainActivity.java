@@ -120,7 +120,7 @@ public class MainActivity extends BaseActivity<RuleListPresenter> implements Rul
         filter.addAction("android.intent.action.loading");
         registerReceiver(myReceive, filter);//注册广播
 
-        mPresenter.feeRule();
+        mPresenter.feeRule(2);
         initview();
         selectItem(0);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |

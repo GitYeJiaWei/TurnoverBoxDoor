@@ -229,7 +229,7 @@ public class ReturnCommitActivity extends BaseActivity<CreateReturnPresenter> im
             ToastUtil.toast("退还成功");
 
             ACache aCache = ACache.get(AppApplication.getApplication());
-            String leaseResult = baseBean.getData();
+            leaseResult = baseBean.getData();
             String name = tvName.getText().toString();
 
             EPC epc = new EPC();
@@ -263,7 +263,7 @@ public class ReturnCommitActivity extends BaseActivity<CreateReturnPresenter> im
         switch (view.getId()) {
             case R.id.btn_commit:
                 if (s1<0){
-                    ToastUtil.toast("应退金额不能小于0元");
+                    ToastUtil.toast("应退金额不能小于0元，请先充值再退还");
                     return;
                 }
                 double damageFee = 0;
